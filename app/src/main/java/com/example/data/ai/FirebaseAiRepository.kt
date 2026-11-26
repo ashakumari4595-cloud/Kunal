@@ -116,8 +116,12 @@ class FirebaseAiRepository(
         val prompt = buildLanguageAwarePrompt(trimmed, language)
         return try {
             val response = withTimeout(AI_TIMEOUT_MS) {
-                val chat = model.startChat(history = recentHistory)
-                chat.sendMessage(prompt)
+                if (recentHistory.isEmpty()) {
+                    model.generateContent(prompt)
+                } else {
+                    val chat = model.startChat(history = recentHistory)
+                    chat.sendMessage(prompt)
+                }
             }
             val replyText = response.text?.trim()
                 ?.takeIf { it.isNotBlank() }
@@ -139,15 +143,31 @@ class FirebaseAiRepository(
     }
 
     private fun mapHistoryForGemini(history: List<ChatMessageEntity>): List<Content> {
-        return history
-            .filter { it.text.isNotBlank() }
-            .takeLast(MAX_HISTORY_TURNS)
-            .map { msg ->
-                val role = if (msg.isFromUser) "user" else "model"
-                content(role) {
-                    text(msg.text)
+        val validMessages = history.filter { it.text.isNotBlank() }
+        val pairedHistory = mutableListOf<Content>()
+        var pendingUserMsg: ChatMessageEntity? = null
+
+        for (msg in validMessages) {
+            if (msg.isFromUser) {
+                // Keep the latest user message in case an earlier user message never got a model reply
+                pendingUserMsg = msg
+            } else {
+                val userMessage = pendingUserMsg
+                if (userMessage != null) {
+                    pairedHistory.add(content("user") { text(userMessage.text) })
+                    pairedHistory.add(content("model") { text(msg.text) })
+                    pendingUserMsg = null
                 }
             }
+        }
+
+        // Ensure even count (user -> model pairs) and cap to MAX_HISTORY_TURNS
+        return if (pairedHistory.size > MAX_HISTORY_TURNS) {
+            val trimmed = pairedHistory.takeLast(MAX_HISTORY_TURNS)
+            if (trimmed.firstOrNull()?.role == "model") trimmed.drop(1) else trimmed
+        } else {
+            pairedHistory
+        }
     }
 
     private fun buildLanguageAwarePrompt(

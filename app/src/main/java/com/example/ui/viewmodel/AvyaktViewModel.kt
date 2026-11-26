@@ -101,6 +101,13 @@ class AvyaktViewModel(
     private val _isSyncingCloud = MutableStateFlow(false)
     val isSyncingCloud: StateFlow<Boolean> = _isSyncingCloud.asStateFlow()
 
+    private val _aiErrorMessage = MutableStateFlow<String?>(null)
+    val aiErrorMessage: StateFlow<String?> = _aiErrorMessage.asStateFlow()
+
+    private var lastPromptForRetry: String? = null
+    private var lastAttachCameraForRetry: Boolean = false
+    private var lastFromVoiceForRetry: Boolean = false
+
     @Volatile
     private var latestCameraBitmap: Bitmap? = null
 
@@ -162,6 +169,20 @@ class AvyaktViewModel(
 
     fun showBannerMessage(message: String) {
         _bannerMessage.value = message
+    }
+
+    fun dismissAiError() {
+        _aiErrorMessage.value = null
+    }
+
+    fun retryLastMessage() {
+        val prompt = lastPromptForRetry ?: return
+        _aiErrorMessage.value = null
+        sendUserMessage(
+            rawText = prompt,
+            attachCameraIfActive = lastAttachCameraForRetry,
+            fromVoice = lastFromVoiceForRetry
+        )
     }
 
     fun onMicButtonPressed() {
@@ -244,6 +265,11 @@ class AvyaktViewModel(
         val cleanText = rawText.trim()
         if (cleanText.isBlank()) return
 
+        lastPromptForRetry = cleanText
+        lastAttachCameraForRetry = attachCameraIfActive
+        lastFromVoiceForRetry = fromVoice
+        _aiErrorMessage.value = null
+
         viewModelScope.launch {
             _isGenerating.value = true
             voiceEngine.setThinking()
@@ -291,6 +317,7 @@ class AvyaktViewModel(
                 )
                 chatDao.insertMessage(assistantMsg)
                 updateSessionHeader(sessionId, isFirstUserMessage = false, preview = reply.text)
+                _aiErrorMessage.value = null
 
                 if (fromVoice || settings.autoSpeakReplies) {
                     voiceEngine.speak(
@@ -304,13 +331,18 @@ class AvyaktViewModel(
                 }
             } catch (e: TimeoutCancellationException) {
                 Log.e(TAG, "Assistant reply timed out", e)
-                _bannerMessage.value = "Request timed out. Please check your connection and try again."
+                val msg = "Gemini AI request timed out after 60 seconds. Please check internet connection and retry."
+                _aiErrorMessage.value = msg
+                _bannerMessage.value = msg
                 voiceEngine.setIdleIfNotSpeaking()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to process message", e)
-                _bannerMessage.value = e.localizedMessage ?: "Something went wrong. Please try again."
+                val detail = e.localizedMessage?.takeIf { it.isNotBlank() } ?: e::class.java.simpleName
+                val msg = "AVYAKT AI could not reach Gemini: $detail"
+                _aiErrorMessage.value = msg
+                _bannerMessage.value = msg
                 voiceEngine.setIdleIfNotSpeaking()
             } finally {
                 _isGenerating.value = false

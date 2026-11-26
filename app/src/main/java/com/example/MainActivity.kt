@@ -81,6 +81,7 @@ fun AvyaktApp(
     val isCameraActive by viewModel.isCameraActive.collectAsStateWithLifecycle()
     val useFrontCamera by viewModel.useFrontCamera.collectAsStateWithLifecycle()
     val bannerMessage by viewModel.bannerMessage.collectAsStateWithLifecycle()
+    val aiErrorMessage by viewModel.aiErrorMessage.collectAsStateWithLifecycle()
     val isSyncingCloud by viewModel.isSyncingCloud.collectAsStateWithLifecycle()
 
     NavHost(
@@ -102,9 +103,12 @@ fun AvyaktApp(
                 useFrontCamera = useFrontCamera,
                 isLiveGeminiConnected = viewModel.isLiveGeminiConnected,
                 bannerMessage = bannerMessage,
+                aiErrorMessage = aiErrorMessage,
                 onClearBanner = viewModel::clearBannerMessage,
                 onShowMessage = viewModel::showBannerMessage,
                 onSendMessage = { text -> viewModel.sendUserMessage(text) },
+                onRetryLastMessage = viewModel::retryLastMessage,
+                onDismissAiError = viewModel::dismissAiError,
                 onMicClick = viewModel::onMicButtonPressed,
                 onToggleMute = viewModel::toggleMute,
                 onEndVoice = viewModel::endVoiceConversation,

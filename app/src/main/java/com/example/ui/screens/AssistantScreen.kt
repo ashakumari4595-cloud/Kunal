@@ -37,20 +37,23 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.AddComment
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.VideocamOff
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.FilledTonalIconButton
@@ -126,9 +129,12 @@ fun AssistantScreen(
     useFrontCamera: Boolean,
     isLiveGeminiConnected: Boolean,
     bannerMessage: String?,
+    aiErrorMessage: String? = null,
     onClearBanner: () -> Unit,
     onShowMessage: (String) -> Unit,
     onSendMessage: (String) -> Unit,
+    onRetryLastMessage: () -> Unit = {},
+    onDismissAiError: () -> Unit = {},
     onMicClick: () -> Unit,
     onToggleMute: () -> Unit,
     onEndVoice: () -> Unit,
@@ -301,6 +307,9 @@ fun AssistantScreen(
                                 ChatConversationFeed(
                                     messages = messages,
                                     isGenerating = isGenerating,
+                                    aiErrorMessage = aiErrorMessage,
+                                    onRetryLastMessage = onRetryLastMessage,
+                                    onDismissAiError = onDismissAiError,
                                     onSpeakAloud = onSpeakAloud,
                                     onQuickPrompt = { prompt -> onSendMessage(prompt) },
                                     modifier = Modifier.weight(1f)
@@ -350,6 +359,9 @@ fun AssistantScreen(
                             ChatConversationFeed(
                                 messages = messages,
                                 isGenerating = isGenerating,
+                                aiErrorMessage = aiErrorMessage,
+                                onRetryLastMessage = onRetryLastMessage,
+                                onDismissAiError = onDismissAiError,
                                 onSpeakAloud = onSpeakAloud,
                                 onQuickPrompt = { prompt -> onSendMessage(prompt) },
                                 modifier = Modifier
@@ -593,13 +605,16 @@ private fun AvatarAndCameraStage(
 private fun ChatConversationFeed(
     messages: List<ChatMessageEntity>,
     isGenerating: Boolean,
+    aiErrorMessage: String?,
+    onRetryLastMessage: () -> Unit,
+    onDismissAiError: () -> Unit,
     onSpeakAloud: (String) -> Unit,
     onQuickPrompt: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
 
-    LaunchedEffect(messages.size, isGenerating) {
+    LaunchedEffect(messages.size, isGenerating, aiErrorMessage) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
         }
@@ -648,6 +663,14 @@ private fun ChatConversationFeed(
                     border = BorderStroke(1.dp, HairlineBorder)
                 )
             }
+            if (!aiErrorMessage.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                AiErrorCard(
+                    message = aiErrorMessage,
+                    onRetry = onRetryLastMessage,
+                    onDismiss = onDismissAiError
+                )
+            }
         }
     } else {
         LazyColumn(
@@ -678,6 +701,87 @@ private fun ChatConversationFeed(
                     }
                 }
             }
+            if (!aiErrorMessage.isNullOrBlank() && !isGenerating) {
+                item(key = "ai_error_item") {
+                    AiErrorCard(
+                        message = aiErrorMessage,
+                        onRetry = onRetryLastMessage,
+                        onDismiss = onDismissAiError
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiErrorCard(
+    message: String,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        color = CrimsonAlert.copy(alpha = 0.14f),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, CrimsonAlert.copy(alpha = 0.6f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("ai_error_card")
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.ErrorOutline,
+                        contentDescription = null,
+                        tint = CrimsonAlert,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White
+                    )
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Dismiss error",
+                        tint = MutedIce,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            AssistChip(
+                onClick = onRetry,
+                label = { Text("दोबारा कोशिश करें (Retry)") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = ElevatedSlate,
+                    labelColor = ElectricCyan,
+                    leadingIconContentColor = ElectricCyan
+                ),
+                border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f)),
+                modifier = Modifier.testTag("retry_ai_button")
+            )
         }
     }
 }
@@ -773,7 +877,7 @@ private fun ChatMessageBubble(
                             modifier = Modifier.size(48.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.VolumeUp,
+                                imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
                                 contentDescription = "Speak reply aloud",
                                 tint = ElectricCyan,
                                 modifier = Modifier.size(18.dp)

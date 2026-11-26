@@ -1,0 +1,8 @@
+{
+  "name": "AVYAKT AI",
+  "description": "Personal AI assistant with an animated portrait avatar, real-time Hindi & English voice conversation, live camera vision, and intelligent text chat.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,94 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isNonEmptyString(value, maxLen) {
+      return value is string && value.size() > 0 && value.size() <= maxLen;
+    }
+
+    function isOptionalNonEmptyString(data, field, maxLen) {
+      return !(field in data) || isNonEmptyString(data[field], maxLen);
+    }
+
+    function isValidConversationCreate(data, userId) {
+      return data.keys().hasAll(['userId', 'title', 'lastMessagePreview', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['userId', 'title', 'lastMessagePreview', 'createdAt', 'updatedAt'])
+        && data.userId == userId
+        && isNonEmptyString(data.title, 120)
+        && data.lastMessagePreview is string
+        && data.lastMessagePreview.size() <= 160
+        && data.createdAt is timestamp
+        && data.createdAt <= request.time
+        && data.updatedAt is timestamp
+        && data.updatedAt <= request.time;
+    }
+
+    function isValidConversationUpdate(incoming, existing, userId) {
+      return incoming.keys().hasAll(['userId', 'title', 'lastMessagePreview', 'createdAt', 'updatedAt'])
+        && incoming.keys().hasOnly(['userId', 'title', 'lastMessagePreview', 'createdAt', 'updatedAt'])
+        && incoming.diff(existing).affectedKeys().hasOnly(['title', 'lastMessagePreview', 'updatedAt'])
+        && incoming.userId == userId
+        && incoming.userId == existing.userId
+        && incoming.createdAt == existing.createdAt
+        && isNonEmptyString(incoming.title, 120)
+        && incoming.lastMessagePreview is string
+        && incoming.lastMessagePreview.size() <= 160
+        && incoming.updatedAt is timestamp
+        && incoming.updatedAt <= request.time;
+    }
+
+    function isValidMessageCreate(data, userId, conversationId) {
+      return data.keys().hasAll(['userId', 'conversationId', 'fromUser', 'text', 'placeholderResponse', 'createdAt'])
+        && data.keys().hasOnly([
+          'userId',
+          'conversationId',
+          'fromUser',
+          'text',
+          'placeholderResponse',
+          'pictureUrl',
+          'pictureCaption',
+          'pictureSourceUrl',
+          'cameraSnapshotNote',
+          'createdAt'
+        ])
+        && data.userId == userId
+        && data.conversationId == conversationId
+        && data.fromUser is bool
+        && data.placeholderResponse is bool
+        && isNonEmptyString(data.text, 16000)
+        && isOptionalNonEmptyString(data, 'pictureUrl', 1024)
+        && isOptionalNonEmptyString(data, 'pictureCaption', 1024)
+        && isOptionalNonEmptyString(data, 'pictureSourceUrl', 1024)
+        && isOptionalNonEmptyString(data, 'cameraSnapshotNote', 512)
+        && data.createdAt is timestamp
+        && data.createdAt <= request.time;
+    }
+
+    match /users/{userId}/conversations/{conversationId} {
+      allow list, get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidConversationCreate(request.resource.data, userId);
+      allow update: if isOwner(userId) && isValidConversationUpdate(request.resource.data, resource.data, userId);
+      allow delete: if isOwner(userId);
+
+      match /messages/{messageId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidMessageCreate(request.resource.data, userId, conversationId);
+        allow update: if false;
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
